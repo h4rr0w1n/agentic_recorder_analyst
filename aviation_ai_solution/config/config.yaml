@@ -1,0 +1,80 @@
+# Configuration for Aviation AI Solution
+
+# Data Lake Configuration
+data_lake:
+  storage_type: "local"  # local, s3, azure
+  local_path: "./data_lake"
+  s3_bucket: "aviation-data-lake"
+  azure_container: "aviation-data"
+  
+# Stream Processing Configuration
+streaming:
+  kafka_bootstrap_servers: "localhost:9092"
+  consumer_group: "aviation-ai-consumer"
+  batch_size: 1000
+  processing_timeout_sec: 30
+
+# ASR Configuration
+asr:
+  engine: "whisper"
+  model: "large-v3"
+  language: "en"
+  aviation_finetuned: true
+  
+# Agent Configuration
+agents:
+  retriever:
+    hybrid_search_alpha: 0.5  # BM25 vs vector balance
+    top_k_results: 20
+    
+  analyzer:
+    tokai_taxonomy_enabled: true
+    phraseology_check_enabled: true
+    
+  predictor:
+    risk_threshold_low: 0.3
+    risk_threshold_high: 0.7
+    model_ensemble_weights:
+      random_forest: 0.4
+      lstm: 0.35
+      gnn: 0.25
+      
+  advisor:
+    max_recommendations: 5
+    priority_order: ["MAYDAY", "PAN-PAN", "routine"]
+    
+  guardian:
+    icao_phraseology_strict: true
+    confidence_threshold: 0.85
+    
+  orchestrator:
+    human_in_loop_threshold: 0.7
+    escalation_enabled: true
+
+# Model Configuration
+models:
+  tokai_extractor:
+    nlp_model: "en_aviation_core"
+    
+  risk_prediction:
+    training_data_path: "./data/historical LoS_data"
+    validation_split: 0.2
+    
+# Output Configuration
+output:
+  format: "json"  # json, csv, parquet
+  output_path: "./output"
+  include_audit_trail: true
+  
+# Logging Configuration
+logging:
+  level: "INFO"
+  file_path: "./logs/aviation_ai.log"
+  rotation: "10 MB"
+  retention: "30 days"
+
+# Monitoring Configuration
+monitoring:
+  prometheus_port: 9090
+  metrics_enabled: true
+  tracing_enabled: true
