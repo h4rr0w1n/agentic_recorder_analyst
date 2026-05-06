@@ -219,16 +219,6 @@ This system is designed to comply with:
 
 ---
 
-## 📞 Support
-
-| Need | Contact |
-|------|---------|
-| Technical Support | support@aviation-ai.com |
-| Training | training@aviation-ai.com |
-| Emergency (24/7) | +49 123 456 7899 |
-
----
-
 ## 📄 Documentation
 
 - **[USER_MANUAL.md](USER_MANUAL.md)** - Complete user guide with tutorials
