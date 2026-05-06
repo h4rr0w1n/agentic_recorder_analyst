@@ -17,9 +17,10 @@ faiss-cpu>=1.7.4
 neo4j>=5.0.0
 networkx>=3.0.0
 
-# Stream Processing
+# Stream Processing (optional - comment out if not needed for basic usage)
+# kafka-python>=2.0.2
+# pyflink>=1.17.0  # Not available for Python 3.12, use Docker for full streaming support
 kafka-python>=2.0.2
-pyflink>=1.17.0
 
 # Data Lake and Storage
 pyarrow>=14.0.0
