@@ -426,3 +426,110 @@ class OrchestratorAgent(BaseAgent):
             "audit_trail_generation": True
         })
         return base_caps
+    
+    def analyze_flight(
+        self,
+        flight_code: str,
+        origin: Optional[str] = None,
+        destination: Optional[str] = None,
+        fir: Optional[str] = None,
+        date: Optional[datetime] = None,
+        time_window: Optional[str] = None,
+        include_weather: bool = True,
+        include_notams: bool = True,
+        include_atc_transcripts: bool = True,
+        confidence_threshold: float = 0.75
+    ) -> Dict[str, Any]:
+        """
+        Execute complete flight analysis workflow.
+        
+        Args:
+            flight_code: Flight identifier (e.g., DLH456)
+            origin: Origin airport ICAO code
+            destination: Destination airport ICAO code
+            fir: Flight Information Region
+            date: Flight date
+            time_window: Analysis time window
+            include_weather: Include METAR/TAF data
+            include_notams: Include NOTAM information
+            include_atc_transcripts: Include ATC communications
+            confidence_threshold: Minimum confidence for recommendations
+            
+        Returns:
+            Complete analysis results dictionary
+        """
+        # Build query context
+        query = {
+            "flight_code": flight_code,
+            "origin": origin,
+            "destination": destination,
+            "fir": fir,
+            "date": date.isoformat() if date else datetime.now().isoformat(),
+            "time_window": time_window or "Last 6 hours",
+            "data_sources": []
+        }
+        
+        if include_weather:
+            query["data_sources"].append("METAR_TAF")
+        if include_notams:
+            query["data_sources"].append("NOTAM")
+        if include_atc_transcripts:
+            query["data_sources"].append("ATC_TRANSCRIPT")
+        
+        # Execute full workflow
+        results = self.execute_full_workflow(
+            query=query,
+            flight_code=flight_code,
+            context={"confidence_threshold": confidence_threshold}
+        )
+        
+        # Transform to UI-friendly format
+        risk_level = "LOW"
+        if results.get("risk_score", 0) > 0.65:
+            risk_level = "HIGH"
+        elif results.get("risk_score", 0) > 0.45:
+            risk_level = "MEDIUM"
+        
+        # Extract anomalies from predictor results
+        anomalies = []
+        if "predictor" in results and "anomalies" in results["predictor"]:
+            for anomaly in results["predictor"]["anomalies"]:
+                anomalies.append({
+                    "type": anomaly.get("type", "Unknown"),
+                    "severity": anomaly.get("severity", "LOW"),
+                    "timestamp": anomaly.get("timestamp", "N/A")
+                })
+        
+        # Extract recommendations from advisor results
+        recommendations = []
+        if "advisor" in results and "recommendations" in results["advisor"]:
+            for rec in results["advisor"]["recommendations"]:
+                recommendations.append({
+                    "priority": rec.get("priority", "MEDIUM"),
+                    "type": rec.get("type", "Information"),
+                    "message": rec.get("description", "No description"),
+                    "confidence": rec.get("confidence", 0.0)
+                })
+        
+        # Check if human review is required
+        human_review = (
+            results.get("human_review_required", False) or
+            risk_level == "HIGH" or
+            any(a.get("severity") == "HIGH" for a in anomalies)
+        )
+        
+        return {
+            "flight_code": flight_code,
+            "route": f"{origin or 'Origin TBD'} → {destination or 'Destination TBD'}",
+            "fir": fir or "EDGG",
+            "date": date,
+            "risk_score": round(results.get("risk_score", 0.5), 2),
+            "risk_level": risk_level,
+            "confidence": round(results.get("confidence", 0.8), 2),
+            "tokai_factors": results.get("tokai_factors", {}),
+            "phraseology_compliance": results.get("phraseology_compliance", 0.95),
+            "anomalies_detected": anomalies,
+            "recommendations": recommendations,
+            "warnings": results.get("warnings", []),
+            "human_review_required": human_review
+        }

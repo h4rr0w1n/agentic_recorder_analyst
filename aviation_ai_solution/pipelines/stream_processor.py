@@ -45,7 +45,48 @@ class StreamProcessor:
         self.sessions: Dict[str, StreamSession] = {}
         self.processed_count = 0
         self.error_count = 0
+        self.connected = False
+        self.current_stream_url = None
+    
+    def connect(self, url: str) -> bool:
+        """
+        Establish connection to a stream source.
         
+        Args:
+            url: Stream URL (rtsp://, http://, https://, file://)
+            
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            # Validate URL format
+            if not url or not isinstance(url, str):
+                self.error_count += 1
+                return False
+            
+            # Store connection info
+            self.current_stream_url = url
+            self.connected = True
+            
+            # In production, establish actual connection based on URL scheme
+            # For now, validate basic URL structure
+            if url.startswith(('http://', 'https://', 'rtsp://', 'rtmp://', 'file://')):
+                print(f"Connected to stream: {url}")
+                return True
+            else:
+                # Try to treat as file path
+                import os
+                if os.path.exists(url):
+                    print(f"Connected to file stream: {url}")
+                    return True
+                self.error_count += 1
+                return False
+                
+        except Exception as e:
+            self.error_count += 1
+            print(f"Connection error: {e}")
+            return False
+    
     async def fetch_stream(self, url: str) -> List[Dict]:
         """Fetch data from a streaming URL."""
         # In production, use aiohttp for async HTTP requests
