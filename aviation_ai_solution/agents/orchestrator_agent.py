@@ -1,0 +1,428 @@
+"""
+Orchestrator Agent for coordinating multi-agent workflows.
+
+Handles agent coordination, task dispatching, response aggregation,
+and human-in-the-loop escalation.
+"""
+
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+import json
+
+from .base_agent import BaseAgent, AgentMessage
+from .retriever_agent import RetrieverAgent
+from .analyzer_agent import AnalyzerAgent
+from .predictor_agent import PredictorAgent
+from .advisor_agent import AdvisorAgent
+from .guardian_agent import GuardianAgent
+
+
+class OrchestratorAgent(BaseAgent):
+    """
+    Central orchestrator for the aviation AI multi-agent system.
+    
+    Capabilities:
+    - Agent coordination and task dispatching
+    - Response aggregation from multiple agents
+    - Human-in-the-loop escalation management
+    - Workflow state tracking
+    - Error handling and recovery
+    """
+    
+    def __init__(self, agent_id: Optional[str] = None, config: Optional[Dict] = None):
+        super().__init__(agent_id, config)
+        self.agents = {}
+        self.workflow_history = []
+        
+    def initialize(self) -> bool:
+        """Initialize all subordinate agents."""
+        try:
+            self.log("INFO", "Initializing Orchestrator Agent and subordinate agents")
+            
+            # Initialize configuration
+            self.human_in_loop_threshold = self.config.get("human_in_loop_threshold", 0.7)
+            self.escalation_enabled = self.config.get("escalation_enabled", True)
+            
+            # Initialize all agents
+            agent_configs = self.config.get("agents", {})
+            
+            self.agents["retriever"] = RetrieverAgent(
+                agent_id="Retriever_001",
+                config=agent_configs.get("retriever", {})
+            )
+            self.agents["analyzer"] = AnalyzerAgent(
+                agent_id="Analyzer_001", 
+                config=agent_configs.get("analyzer", {})
+            )
+            self.agents["predictor"] = PredictorAgent(
+                agent_id="Predictor_001",
+                config=agent_configs.get("predictor", {})
+            )
+            self.agents["advisor"] = AdvisorAgent(
+                agent_id="Advisor_001",
+                config=agent_configs.get("advisor", {})
+            )
+            self.agents["guardian"] = GuardianAgent(
+                agent_id="Guardian_001",
+                config=agent_configs.get("guardian", {})
+            )
+            
+            # Initialize each agent
+            initialization_results = {}
+            for name, agent in self.agents.items():
+                success = agent.initialize()
+                initialization_results[name] = success
+                if not success:
+                    self.log("ERROR", f"Failed to initialize {name} agent")
+            
+            # Check if all agents initialized successfully
+            all_success = all(initialization_results.values())
+            
+            if all_success:
+                self._initialized = True
+                self.update_state("idle", confidence=1.0)
+                self.log("INFO", "All agents initialized successfully")
+            else:
+                self.update_state("error", error="Some agents failed initialization")
+            
+            return all_success
+            
+        except Exception as e:
+            self.log("ERROR", f"Failed to initialize Orchestrator: {str(e)}")
+            self.update_state("error", error=str(e))
+            return False
+    
+    def process_message(self, message: AgentMessage) -> AgentMessage:
+        """Process incoming orchestration requests."""
+        if not self._initialized:
+            return AgentMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type="response",
+                content={"error": "Orchestrator not initialized"},
+                priority="high"
+            )
+        
+        try:
+            self.update_state("processing", message.content.get("task_type"))
+            
+            task_type = message.content.get("task_type", "analyze_flight")
+            
+            if task_type == "analyze_flight":
+                results = self.execute_full_workflow(
+                    query=message.content.get("query", {}),
+                    flight_code=message.content.get("flight_code"),
+                    time_window=message.content.get("time_window"),
+                    fir=message.content.get("fir")
+                )
+            elif task_type == "risk_assessment":
+                results = self.execute_risk_assessment_workflow(
+                    flight_code=message.content.get("flight_code"),
+                    context=message.content.get("context", {})
+                )
+            elif task_type == "real_time_monitoring":
+                results = self.execute_realtime_monitoring(
+                    stream_data=message.content.get("stream_data", [])
+                )
+            else:
+                results = {"error": f"Unknown task type: {task_type}"}
+            
+            response = AgentMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type="response",
+                content={"results": results},
+                priority=message.priority,
+                metadata={"orchestration_time": datetime.utcnow().isoformat()}
+            )
+            
+            self.update_state("idle", confidence=0.95)
+            return response
+            
+        except Exception as e:
+            self.log("ERROR", f"Error processing message: {str(e)}")
+            self.update_state("error", error=str(e))
+            return AgentMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type="response",
+                content={"error": str(e)},
+                priority="critical"
+            )
+    
+    def execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute an orchestration task."""
+        required_fields = ["task_type"]
+        if not self.validate_input(task, required_fields):
+            return {"success": False, "error": "Missing required fields"}
+        
+        message = AgentMessage(
+            sender="user",
+            recipient=self.agent_id,
+            message_type="request",
+            content=task
+        )
+        
+        response = self.process_message(message)
+        return response.content
+    
+    def execute_full_workflow(self, query: Dict, flight_code: Optional[str] = None,
+                             time_window: Optional[Dict] = None, 
+                             fir: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Execute the complete multi-agent analysis workflow.
+        
+        Workflow:
+        1. Retriever: Fetch relevant data
+        2. Analyzer: Analyze transcripts and extract factors
+        3. Predictor: Generate risk predictions
+        4. Advisor: Create recommendations
+        5. Guardian: Validate compliance
+        6. Aggregate and return results
+        
+        Args:
+            query: User query or analysis request.
+            flight_code: Flight code to analyze.
+            time_window: Time range for analysis.
+            fir: Flight Information Region.
+            
+        Returns:
+            Complete analysis results with recommendations.
+        """
+        self.log("INFO", f"Executing full workflow for flight {flight_code}")
+        
+        workflow_start = datetime.utcnow()
+        session_data = {
+            "start_time": workflow_start.isoformat(),
+            "flight_code": flight_code,
+            "fir": fir,
+            "time_window": time_window,
+            "agent_outputs": {},
+            "workflow_steps": []
+        }
+        
+        try:
+            # Step 1: Retrieve data
+            self.log("INFO", "Step 1: Retrieving data")
+            retrieval_result = self.agents["retriever"].execute_task({
+                "task_type": "retrieve_by_flight",
+                "flight_code": flight_code,
+                "time_window": time_window,
+                "fir": fir
+            })
+            session_data["agent_outputs"]["retriever"] = retrieval_result
+            session_data["workflow_steps"].append({"step": 1, "agent": "retriever", "status": "complete"})
+            
+            # Step 2: Analyze retrieved data
+            self.log("INFO", "Step 2: Analyzing data")
+            transcripts = self._extract_transcripts(retrieval_result)
+            analysis_result = self.agents["analyzer"].execute_task({
+                "task_type": "analyze_transcript",
+                "transcript": transcripts,
+                "metadata": {"flight_code": flight_code, "fir": fir}
+            })
+            session_data["agent_outputs"]["analyzer"] = analysis_result
+            session_data["workflow_steps"].append({"step": 2, "agent": "analyzer", "status": "complete"})
+            
+            # Step 3: Predict risk
+            self.log("INFO", "Step 3: Predicting risk")
+            features = self._extract_features(analysis_result, retrieval_result)
+            prediction_result = self.agents["predictor"].execute_task({
+                "task_type": "predict_risk",
+                "features": features,
+                "context": {"flight_code": flight_code, "fir": fir}
+            })
+            session_data["agent_outputs"]["predictor"] = prediction_result
+            session_data["workflow_steps"].append({"step": 3, "agent": "predictor", "status": "complete"})
+            
+            # Step 4: Generate advisory
+            self.log("INFO", "Step 4: Generating advisory")
+            advisory_result = self.agents["advisor"].execute_task({
+                "task_type": "generate_advisory",
+                "analysis": analysis_result.get("results", {}),
+                "prediction": prediction_result.get("results", {}),
+                "context": {"flight_code": flight_code, "fir": fir}
+            })
+            session_data["agent_outputs"]["advisor"] = advisory_result
+            session_data["workflow_steps"].append({"step": 4, "agent": "advisor", "status": "complete"})
+            
+            # Step 5: Validate with Guardian
+            self.log("INFO", "Step 5: Validating compliance")
+            validation_result = self.agents["guardian"].execute_task({
+                "task_type": "validate_advisory",
+                "advisory": advisory_result.get("results", {}),
+                "context": {"flight_code": flight_code, "fir": fir}
+            })
+            session_data["agent_outputs"]["guardian"] = validation_result
+            session_data["workflow_steps"].append({"step": 5, "agent": "guardian", "status": "complete"})
+            
+            # Check if human review is needed
+            requires_review = validation_result.get("results", {}).get("requires_review", False)
+            if requires_review and self.escalation_enabled:
+                self.log("WARNING", "Escalating for human review")
+                escalation = self.agents["guardian"].execute_task({
+                    "task_type": "escalate_for_review",
+                    "item": advisory_result.get("results", {}),
+                    "reason": "Low confidence or critical action requiring review"
+                })
+                session_data["escalation"] = escalation
+            
+            # Aggregate final output
+            final_output = self._aggregate_results(
+                retrieval=retrieval_result,
+                analysis=analysis_result,
+                prediction=prediction_result,
+                advisory=advisory_result,
+                validation=validation_result
+            )
+            
+            session_data["final_output"] = final_output
+            session_data["end_time"] = datetime.utcnow().isoformat()
+            
+            # Generate audit trail
+            audit_trail = self.agents["guardian"].execute_task({
+                "task_type": "generate_audit_trail",
+                "session_data": session_data
+            })
+            
+            self.workflow_history.append(session_data)
+            
+            return {
+                "success": True,
+                "output": final_output,
+                "audit_trail": audit_trail,
+                "requires_human_review": requires_review,
+                "workflow_duration_seconds": (datetime.utcnow() - workflow_start).total_seconds()
+            }
+            
+        except Exception as e:
+            self.log("ERROR", f"Workflow execution failed: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "partial_results": session_data
+            }
+    
+    def execute_risk_assessment_workflow(self, flight_code: str,
+                                        context: Dict) -> Dict[str, Any]:
+        """Execute focused risk assessment workflow."""
+        self.log("INFO", f"Executing risk assessment for {flight_code}")
+        
+        # Simplified workflow focusing on risk prediction
+        retrieval = self.agents["retriever"].execute_task({
+            "task_type": "retrieve_by_flight",
+            "flight_code": flight_code
+        })
+        
+        features = self._extract_features({}, retrieval)
+        prediction = self.agents["predictor"].execute_task({
+            "task_type": "predict_risk",
+            "features": features,
+            "context": context
+        })
+        
+        return {
+            "flight_code": flight_code,
+            "risk_assessment": prediction.get("results", {}),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    def execute_realtime_monitoring(self, stream_data: List[Dict]) -> Dict[str, Any]:
+        """Execute real-time monitoring workflow for streaming data."""
+        self.log("INFO", f"Processing {len(stream_data)} stream data points")
+        
+        alerts = []
+        
+        for data_point in stream_data:
+            # Quick anomaly detection
+            anomaly_result = self.agents["predictor"].execute_task({
+                "task_type": "detect_anomaly",
+                "time_series": [data_point]
+            })
+            
+            if anomaly_result.get("results", {}).get("anomaly_count", 0) > 0:
+                alerts.append({
+                    "data_point": data_point,
+                    "anomaly_details": anomaly_result["results"],
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+        
+        return {
+            "processed_count": len(stream_data),
+            "alerts_generated": len(alerts),
+            "alerts": alerts
+        }
+    
+    def _extract_transcripts(self, retrieval_result: Dict) -> str:
+        """Extract transcript text from retrieval results."""
+        # In production, properly extract and concatenate transcripts
+        return "Sample ATC transcript for analysis"
+    
+    def _extract_features(self, analysis_result: Dict, retrieval_result: Dict) -> Dict:
+        """Extract features for prediction model."""
+        # In production, extract actual features from analysis results
+        return {
+            "traffic_density": 0.6,
+            "weather_severity": 0.3,
+            "phraseology_compliance": 0.85,
+            "crew_duty_hours": 6.5,
+            "handoffs_per_hour": 4
+        }
+    
+    def _aggregate_results(self, retrieval: Dict, analysis: Dict, 
+                          prediction: Dict, advisory: Dict,
+                          validation: Dict) -> Dict[str, Any]:
+        """Aggregate results from all agents into final output."""
+        return {
+            "summary": {
+                "flight_code": prediction.get("results", {}).get("context", {}).get("flight_code"),
+                "risk_level": prediction.get("results", {}).get("risk_level", "UNKNOWN"),
+                "risk_score": prediction.get("results", {}).get("risk_score", 0),
+                "priority": advisory.get("results", {}).get("priority", "routine")
+            },
+            "detailed_results": {
+                "retrieval": retrieval,
+                "analysis": analysis,
+                "prediction": prediction,
+                "advisory": advisory,
+                "validation": validation
+            },
+            "recommendations": advisory.get("results", {}).get("recommendations", []),
+            "compliance_status": validation.get("results", {}).get("approved", True),
+            "generated_at": datetime.utcnow().isoformat()
+        }
+    
+    def get_agent_status(self) -> Dict[str, Any]:
+        """Get status of all agents."""
+        status = {}
+        for name, agent in self.agents.items():
+            status[name] = {
+                "agent_id": agent.agent_id,
+                "state": agent.state.status,
+                "confidence": agent.state.confidence_score,
+                "current_task": agent.state.current_task
+            }
+        return status
+    
+    def shutdown(self) -> None:
+        """Shutdown all agents gracefully."""
+        self.log("INFO", "Shutting down Orchestrator and all agents")
+        
+        for name, agent in self.agents.items():
+            agent.shutdown()
+        
+        super().shutdown()
+    
+    def get_capabilities(self) -> Dict[str, Any]:
+        """Return Orchestrator-specific capabilities."""
+        base_caps = super().get_capabilities()
+        base_caps.update({
+            "workflow_types": [
+                "full_analysis", "risk_assessment", "realtime_monitoring"
+            ],
+            "managed_agents": list(self.agents.keys()),
+            "human_in_loop_enabled": self.escalation_enabled,
+            "human_in_loop_threshold": self.human_in_loop_threshold,
+            "audit_trail_generation": True
+        })
+        return base_caps
