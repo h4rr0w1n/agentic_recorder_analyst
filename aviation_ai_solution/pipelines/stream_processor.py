@@ -8,6 +8,7 @@ from online sources, grouping results by session with specified dates.
 import asyncio
 import json
 import hashlib
+from .utils.transcription import TranscriptionService
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,7 @@ class StreamProcessor:
         self.error_count = 0
         self.connected = False
         self.current_stream_url = None
+        self.transcriber = TranscriptionService(config=self.config)
     
     def connect(self, url: str) -> bool:
         """
@@ -210,8 +212,18 @@ class StreamProcessor:
         # Step 1: Fetch stream data
         raw_data_points = await self.fetch_stream(stream_url)
         
-        # Step 2: Group by session (date)
-        self.sessions = self.group_by_session(raw_data_points)
+        # Step 2: Transcription step for audio data
+        processed_data_points = []
+        for point in raw_data_points:
+            if point.get("type") == "audio":
+                # Transcribe audio content
+                transcription = self.transcriber.transcribe(point.get("source", "stream_input"))
+                point["transcript"] = transcription["transcript"]
+                point["transcription_metadata"] = transcription["metadata"]
+            processed_data_points.append(point)
+        
+        # Step 3: Group by session (date)
+        self.sessions = self.group_by_session(processed_data_points)
         
         # Step 3: Save sessions to output directory
         output_path = Path(output_dir)

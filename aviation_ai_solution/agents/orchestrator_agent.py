@@ -113,7 +113,9 @@ class OrchestratorAgent(BaseAgent):
                     query=message.content.get("query", {}),
                     flight_code=message.content.get("flight_code"),
                     time_window=message.content.get("time_window"),
-                    fir=message.content.get("fir")
+                    fir=message.content.get("fir"),
+                    origin=message.content.get("origin"),
+                    destination=message.content.get("destination")
                 )
             elif task_type == "risk_assessment":
                 results = self.execute_risk_assessment_workflow(
@@ -208,7 +210,9 @@ class OrchestratorAgent(BaseAgent):
                 "task_type": "retrieve_by_flight",
                 "flight_code": flight_code,
                 "time_window": time_window,
-                "fir": fir
+                "fir": fir,
+                "origin": origin,
+                "destination": destination
             })
             session_data["agent_outputs"]["retriever"] = retrieval_result
             session_data["workflow_steps"].append({"step": 1, "agent": "retriever", "status": "complete"})
@@ -355,18 +359,38 @@ class OrchestratorAgent(BaseAgent):
     
     def _extract_transcripts(self, retrieval_result: Dict) -> str:
         """Extract transcript text from retrieval results."""
-        # In production, properly extract and concatenate transcripts
-        return "Sample ATC transcript for analysis"
+        transcripts = retrieval_result.get("transcripts", [])
+        if not transcripts:
+            return ""
+        
+        # Concatenate all transcript texts into a single narrative
+        texts = [t.get("text", "") for t in transcripts if isinstance(t, dict)]
+        return "\n".join(texts)
     
     def _extract_features(self, analysis_result: Dict, retrieval_result: Dict) -> Dict:
-        """Extract features for prediction model."""
-        # In production, extract actual features from analysis results
+        """Extract features for prediction model from analysis and retrieval results."""
+        # Extract actual features instead of using mocks
+        
+        # 1. Phraseology Compliance (from analysis)
+        compliance = analysis_result.get("results", {}).get("phraseology_compliance", {})
+        violations = len(compliance.get("violations", []))
+        warnings = len(compliance.get("warnings", []))
+        compliance_score = 1.0 - (violations * 0.1 + warnings * 0.05) if compliance else 0.85
+        
+        # 2. TOKAI factors (from analysis)
+        tokai = analysis_result.get("results", {}).get("tokai_factors", {})
+        negative_factors = sum(f["negative"] for f in tokai.values()) if tokai else 0
+        
+        # 3. Traffic/Contextual data (from retrieval)
+        audio_records = retrieval_result.get("audio_records", [])
+        traffic_density = len(audio_records) / 100.0 # Simple heuristic
+        
         return {
-            "traffic_density": 0.6,
-            "weather_severity": 0.3,
-            "phraseology_compliance": 0.85,
-            "crew_duty_hours": 6.5,
-            "handoffs_per_hour": 4
+            "traffic_density": min(traffic_density, 1.0),
+            "weather_severity": 0.3, # Would come from METAR analysis
+            "phraseology_compliance": max(compliance_score, 0.0),
+            "negative_tokai_count": negative_factors,
+            "record_count": len(audio_records)
         }
     
     def _aggregate_results(self, retrieval: Dict, analysis: Dict, 
@@ -480,6 +504,10 @@ class OrchestratorAgent(BaseAgent):
         results = self.execute_full_workflow(
             query=query,
             flight_code=flight_code,
+            time_window=time_window,
+            fir=fir,
+            origin=origin,
+            destination=destination,
             context={"confidence_threshold": confidence_threshold}
         )
         

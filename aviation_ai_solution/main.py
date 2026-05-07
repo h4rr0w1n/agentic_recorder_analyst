@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from .agents.orchestrator_agent import OrchestratorAgent
+from .utils.transcription import TranscriptionService
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -41,8 +42,11 @@ def process_directory(input_dir: str, orchestrator: OrchestratorAgent) -> Dict[s
     if not input_path.exists():
         return {"error": f"Input directory {input_dir} does not exist"}
     
+    # Initialize transcription service
+    transcriber = TranscriptionService(config=orchestrator.config)
+    
     # Find all relevant files
-    file_patterns = ['*.json', '*.txt', '*.csv', '*.log']
+    file_patterns = ['*.json', '*.txt', '*.csv', '*.log', '*.wav', '*.mp3', '*.flac', '*.m4a']
     files = []
     for pattern in file_patterns:
         files.extend(input_path.glob(f'**/{pattern}'))
@@ -55,15 +59,25 @@ def process_directory(input_dir: str, orchestrator: OrchestratorAgent) -> Dict[s
             flight_code = file_path.stem.split('_')[0] if '_' in file_path.stem else None
             
             # Read file content
-            with open(file_path, 'r') as f:
-                content = f.read()
-            
-            # Process based on file type
-            if file_path.suffix == '.json':
-                data = json.loads(content)
-                flight_code = flight_code or data.get('flight_code')
+            if file_path.suffix in ['.wav', '.mp3', '.flac', '.m4a']:
+                # Audio file: transcribe first
+                transcription_result = transcriber.transcribe(str(file_path))
+                data = {
+                    "content": transcription_result["transcript"],
+                    "source": str(file_path),
+                    "transcription_metadata": transcription_result["metadata"]
+                }
             else:
-                data = {"content": content, "source": str(file_path)}
+                # Text-based file
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                
+                # Process based on file type
+                if file_path.suffix == '.json':
+                    data = json.loads(content)
+                    flight_code = flight_code or data.get('flight_code')
+                else:
+                    data = {"content": content, "source": str(file_path)}
             
             # Run analysis workflow
             result = orchestrator.execute_task({

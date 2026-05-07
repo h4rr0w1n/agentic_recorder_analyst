@@ -11,6 +11,7 @@ import os
 import json
 
 from .base_agent import BaseAgent, AgentMessage
+from ..data_lake.mongo_client import AviationDataLake
 
 
 class RetrieverAgent(BaseAgent):
@@ -28,6 +29,7 @@ class RetrieverAgent(BaseAgent):
     
     def __init__(self, agent_id: Optional[str] = None, config: Optional[Dict] = None):
         super().__init__(agent_id, config)
+        self.db = AviationDataLake(config)
         self.indexes = {}
         self.vector_store = None
         self.graph_db = None
@@ -179,23 +181,25 @@ class RetrieverAgent(BaseAgent):
         Returns:
             List of flight-related records (ATC logs, flight plans, METARs, etc.).
         """
-        self.log("INFO", f"Retrieving records for flight {flight_code}")
+        self.log("INFO", f"Querying data lake for flight {flight_code}")
         
-        # Query graph database for flight entity and related records
-        # In production: traverse graph from flight node
-        results = []
+        query = {"flight_code": flight_code}
+        if fir: query["fir"] = fir
+        if origin: query["origin"] = origin
+        if destination: query["destination"] = destination
         
-        # Simulate retrieving different record types
-        record_types = ["flight_plan", "atc_transcript", "metar", "notam", "adsb_track"]
+        # Retrieve audio records and transcripts
+        audio_records = self.db.find_records("records", query)
+        transcripts = self.db.find_records("transcripts", query)
         
-        for record_type in record_types:
-            results.append({
-                "type": record_type,
-                "flight_code": flight_code,
-                "fir": fir,
-                "time_window": time_window,
-                "data": f"Sample {record_type} data for {flight_code}"
-            })
+        return {
+            "audio_records": audio_records,
+            "transcripts": transcripts,
+            "metadata": {
+                "count": len(audio_records) + len(transcripts),
+                "retrieved_at": datetime.utcnow().isoformat()
+            }
+        }
         
         return results
     
@@ -281,6 +285,14 @@ class RetrieverAgent(BaseAgent):
             
             # FIR filter
             if "fir" in filters and result.get("fir") != filters["fir"]:
+                match = False
+            
+            # Origin airport filter
+            if "origin" in filters and result.get("origin") != filters["origin"]:
+                match = False
+            
+            # Destination airport filter
+            if "destination" in filters and result.get("destination") != filters["destination"]:
                 match = False
             
             # Flight code filter
