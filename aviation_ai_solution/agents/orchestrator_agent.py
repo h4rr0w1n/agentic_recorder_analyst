@@ -170,7 +170,10 @@ class OrchestratorAgent(BaseAgent):
     
     def execute_full_workflow(self, query: Dict, flight_code: Optional[str] = None,
                              time_window: Optional[Dict] = None, 
-                             fir: Optional[str] = None) -> Dict[str, Any]:
+                             fir: Optional[str] = None,
+                             origin: Optional[str] = None,
+                             destination: Optional[str] = None,
+                             context: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Execute the complete multi-agent analysis workflow.
         

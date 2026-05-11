@@ -63,9 +63,9 @@ def process_directory(input_dir: str, orchestrator: OrchestratorAgent) -> Dict[s
                 # Audio file: transcribe first
                 transcription_result = transcriber.transcribe(str(file_path))
                 data = {
-                    "content": transcription_result["transcript"],
+                    "content": transcription_result.get("transcript", ""),
                     "source": str(file_path),
-                    "transcription_metadata": transcription_result["metadata"]
+                    "transcription_metadata": transcription_result.get("metadata", {})
                 }
             else:
                 # Text-based file
